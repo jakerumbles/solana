@@ -1,9 +1,6 @@
-// import web3 = require("@solana/web3.js");
-// const { Keypair, Connection, clusterApiUrl } = require('@solana/web3.js');
-// const { readFileSync } = require('fs');
 import { readFileSync } from "fs";
 import { Keypair, Connection, clusterApiUrl, PublicKey, LAMPORTS_PER_SOL, BlockheightBasedTransactionConfirmationStrategy } from "@solana/web3.js";
-import { createMint, getOrCreateAssociatedTokenAccount, mintTo, getAccount } from "@solana/spl-token";
+import { createMint, getOrCreateAssociatedTokenAccount, mintTo, getAccount, getMint } from "@solana/spl-token";
 
 async function main() {
   let connection = new Connection("http://127.0.0.1:8899", "confirmed");
@@ -12,13 +9,34 @@ async function main() {
   let localKeypair = await getLocalWallet(connection);
 
   // NFT mint
-  await nftMint(connection, localKeypair);
+  // await nftMint(connection, localKeypair);
+
+  // Fungible token mint
+  await ftMint(connection, localKeypair);
+}
+
+async function ftMint(connection: Connection, keypair: Keypair) {
+  const mint = await createMint(connection, keypair, keypair.publicKey, keypair.publicKey, 9);
+  console.log(`FT Mint address: ${mint.toBase58()}`);
+
+  let mintInfo = await getMint(connection, mint);
+  console.log(`Mint total supply: ${mintInfo.supply}`);
+
+  const associatedTokenAccount = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
+
+  await mintTo(connection, keypair, mint, associatedTokenAccount.address, keypair.publicKey, 1000000000);
+
+  let account = await getAccount(connection, associatedTokenAccount.address);
+  console.log(`Token account balance: ${account.amount}`);
+
+  mintInfo = await getMint(connection, mint);
+  console.log(`Updated mint total supply: ${mintInfo.supply}`);
 }
 
 async function nftMint(connection: Connection, keypair: Keypair) {
   // Create mint
   const mint = await createMint(connection, keypair, keypair.publicKey, null, 0);
-  console.log(`Mint address: ${mint.toBase58()}`);
+  console.log(`NFT Mint address: ${mint.toBase58()}`);
 
   // Create associated token account to mint to
   const associatedTokenAccount = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
@@ -68,8 +86,6 @@ async function getLocalWallet(connection: Connection) {
   return localKeypair;
 }
 
-
-
 function getLocalKeypair() {
     // Path to your id.json file
     const keypairFilePath = `${process.env.HOME}/.config/solana/id.json`;
@@ -87,7 +103,7 @@ function getLocalKeypair() {
 }
 
 main().then(() => {
-  console.log("NFT created")
+  console.log("");
 }).catch((error) => {
   console.error(error)
 });
