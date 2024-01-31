@@ -2,7 +2,7 @@
   "name": "nft",
   "version": "1.0.0",
   "description": "Starting on NFT",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node src/index.ts"
@@ -14,7 +14,12 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@metaplex-foundation/mpl-candy-machine": "^6.0.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.1.2",
+    "@metaplex-foundation/umi": "^0.8.2",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.8.2",
     "@solana/spl-token": "^0.4.0",
+    "@solana/wallet-adapter-react": "^0.15.35",
     "@solana/web3.js": "^1.89.1"
   }
 }

@@ -1,6 +1,16 @@
 import { readFileSync } from "fs";
 import { Keypair, Connection, clusterApiUrl, PublicKey, LAMPORTS_PER_SOL, BlockheightBasedTransactionConfirmationStrategy } from "@solana/web3.js";
 import { createMint, getOrCreateAssociatedTokenAccount, mintTo, getAccount, getMint } from "@solana/spl-token";
+import { ftMint, getLocalWallet, nftMint } from "./splToken";
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
+import { mplCandyMachine, create } from '@metaplex-foundation/mpl-candy-machine'
+import {
+  createNft,
+  TokenStandard,
+} from '@metaplex-foundation/mpl-token-metadata'
+import { createSignerFromKeypair, generateSigner, keypairIdentity, percentAmount, some, transactionBuilder } from '@metaplex-foundation/umi'
+// import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
+import { useWallet } from "@solana/wallet-adapter-react";
 
 async function main() {
   let connection = new Connection("http://127.0.0.1:8899", "confirmed");
@@ -12,95 +22,68 @@ async function main() {
   // await nftMint(connection, localKeypair);
 
   // Fungible token mint
-  await ftMint(connection, localKeypair);
-}
+  // await ftMint(connection, localKeypair);
 
-async function ftMint(connection: Connection, keypair: Keypair) {
-  const mint = await createMint(connection, keypair, keypair.publicKey, keypair.publicKey, 9);
-  console.log(`FT Mint address: ${mint.toBase58()}`);
+  const umi = createUmi('http://127.0.0.1:8899').use(mplCandyMachine());
 
-  let mintInfo = await getMint(connection, mint);
-  console.log(`Mint total supply: ${mintInfo.supply}`);
+  // Add the local wallet to the Umi instance as the signer.
+  const myKeypair = umi.eddsa.createKeypairFromSecretKey(localKeypair.secretKey);
+  const myKeypairSigner = createSignerFromKeypair(umi, myKeypair);
+  umi.use(keypairIdentity(myKeypairSigner));
 
-  const associatedTokenAccount = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
+  console.log(`Umi signer: ${umi.identity.publicKey}`);
 
-  await mintTo(connection, keypair, mint, associatedTokenAccount.address, keypair.publicKey, 1000000000);
+  // const wallet = useWallet();
+  // umi.use(walletAdapterIdentity(wallet))
 
-  let account = await getAccount(connection, associatedTokenAccount.address);
-  console.log(`Token account balance: ${account.amount}`);
-
-  mintInfo = await getMint(connection, mint);
-  console.log(`Updated mint total supply: ${mintInfo.supply}`);
-}
-
-async function nftMint(connection: Connection, keypair: Keypair) {
-  // Create mint
-  const mint = await createMint(connection, keypair, keypair.publicKey, null, 0);
-  console.log(`NFT Mint address: ${mint.toBase58()}`);
-
-  // Create associated token account to mint to
-  const associatedTokenAccount = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
-  console.log(`Associated token account: ${associatedTokenAccount.address.toBase58()} with balance ${associatedTokenAccount.amount}`);
-
-  // Actually mint the tokens to the new associated token account
-  const mintAmount = 1;
-  console.log(`Minting ${mintAmount} tokens to ${associatedTokenAccount.address.toBase58()}`)
-  await mintTo(connection, keypair, mint, associatedTokenAccount.address, keypair, 1);
-
-  // Verify the balance
-  let account = await getAccount(connection, associatedTokenAccount.address);
-  console.log(`Token account balance: ${account.amount}`);
-}
-
-/**
- * Gets local dev keypair. If less than one SOL balance is found, request an airdrop.
- */
-async function getLocalWallet(connection: Connection) {
-  // console.log(`TOTAL SOL SUPPLY: ${(await connection.getSupply()).value.total}`);
-
-  // let localKeypair = new PublicKey(getLocalKeypair());
-  const localKeypair = getLocalKeypair();
-  console.log("Local keypair: ", localKeypair.publicKey.toBase58());
-
-  // console.log("Getting new keypair...");
-  // let payer = Keypair.generate();
-
-  let myBalance = await connection.getBalance(localKeypair.publicKey);
-
-  // If I have less than 1 SOL, get airdrop
-  if (myBalance < LAMPORTS_PER_SOL) {
-    console.log("Getting airdrop...");
-    const airdropSignature = await connection.requestAirdrop(localKeypair.publicKey, LAMPORTS_PER_SOL);
-    const latestBlockHeight = await connection.getLatestBlockhash();
-
-    await connection.confirmTransaction({
-      signature: airdropSignature,
-      lastValidBlockHeight: latestBlockHeight.lastValidBlockHeight,
-      blockhash: latestBlockHeight.blockhash
-    });
-    myBalance = await connection.getBalance(localKeypair.publicKey);
+  // Create the Collection NFT.
+  const collectionUpdateAuthority = generateSigner(umi)
+  const collectionMint = generateSigner(umi)
+  
+  try {
+    console.log("Creating collection mint...");
+    await createNft(umi, {
+      mint: collectionMint,
+      authority: collectionUpdateAuthority,
+      name: 'My Collection NFT',
+      uri: 'https://arweave.net/yfVoS8kmFiM_XjfZOETgdCfrByKDyheSJ20nyam8_ag',
+      sellerFeeBasisPoints: percentAmount(5.00, 2), // 9.99%
+      isCollection: true,
+    }).sendAndConfirm(umi)
+  } catch (error) {
+    console.error(error)
   }
 
-  console.log("My balance: ", myBalance);
+  console.log("Collection mint address: ", collectionMint.publicKey);
 
-  return localKeypair;
+  // Create the Candy Machine.
+  // const candyMachine = generateSigner(umi)
+  // const createInstructions = await create(umi, {
+  //   candyMachine,
+  //   collectionMint: collectionMint.publicKey,
+  //   collectionUpdateAuthority,
+  //   tokenStandard: TokenStandard.NonFungible,
+  //   sellerFeeBasisPoints: percentAmount(5.00, 2), // 9.99%
+  //   itemsAvailable: 500,
+  //   creators: [
+  //     {
+  //       address: umi.identity.publicKey,
+  //       verified: true,
+  //       percentageShare: 100,
+  //     },
+  //   ],
+  //   configLineSettings: some({
+  //     prefixName: '',
+  //     nameLength: 32,
+  //     prefixUri: '',
+  //     uriLength: 200,
+  //     isSequential: false,
+  //   }),
+  // });
+
+  // await transactionBuilder().add(createInstructions).sendAndConfirm(umi);
 }
 
-function getLocalKeypair() {
-    // Path to your id.json file
-    const keypairFilePath = `${process.env.HOME}/.config/solana/id.json`;
-
-    // Read the keypair file
-    const keypairJson = readFileSync(keypairFilePath, { encoding: 'utf8' });
-
-    // Parse the JSON and create a Keypair instance
-    const keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(keypairJson)));
-
-    // Example: Output the public key of the loaded keypair
-    console.log('Public Key:', keypair.publicKey.toBase58());
-
-    return keypair;
-}
 
 main().then(() => {
   console.log("");
